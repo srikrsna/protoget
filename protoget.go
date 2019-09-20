@@ -27,18 +27,22 @@ var Analyzer = &analysis.Analyzer{
 func run(pass *analysis.Pass) (interface{}, error) {
 	ins := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 	var assignments []*ast.AssignStmt
-	ins.Preorder([]ast.Node{(*ast.AssignStmt)(nil)}, func(n ast.Node) {
-		a := n.(*ast.AssignStmt)
-		if a.Tok == token.DEFINE {
+	pointers := map[ast.Expr]bool{}
+	ins.Preorder([]ast.Node{(*ast.AssignStmt)(nil), (*ast.UnaryExpr)(nil)}, func(n ast.Node) {
+		if a, ok := n.(*ast.AssignStmt); ok && a.Tok != token.DEFINE {
+			assignments = append(assignments, a)
 			return
 		}
-		assignments = append(assignments, a)
+
+		if p, ok := n.(*ast.UnaryExpr); ok && p.Op == token.AND {
+			pointers[p.X] = true
+		}
 	})
 	ins.Preorder([]ast.Node{(*ast.SelectorExpr)(nil)}, func(n ast.Node) {
 		sel := n.(*ast.SelectorExpr)
 		typ := pass.TypesInfo.Types[sel.X].Type
 
-		if typ == nil {
+		if typ == nil { // Packages
 			return
 		}
 
@@ -47,7 +51,6 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		}
 
 		st := ((typ.(*types.Pointer)).Elem().(*types.Named)).Underlying().(*types.Struct)
-
 		stop := true
 		for i := 0; i < st.NumFields(); i++ {
 			if st.Field(i).Name() == sel.Sel.Name {
@@ -60,7 +63,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 			return
 		}
 
-		if isLHS(assignments, sel) {
+		if isLHS(assignments, pointers, sel) {
 			return
 		}
 
@@ -87,7 +90,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 
 var callType = reflect.TypeOf((*ast.CallExpr)(nil))
 
-func isLHS(assignments []*ast.AssignStmt, sel *ast.SelectorExpr) bool {
+func isLHS(assignments []*ast.AssignStmt, pointers map[ast.Expr]bool, sel *ast.SelectorExpr) bool {
 	temp := reflect.ValueOf(sel)
 	old := temp
 
@@ -111,6 +114,10 @@ func isLHS(assignments []*ast.AssignStmt, sel *ast.SelectorExpr) bool {
 	}
 
 	i := old.Interface()
+
+	if pointers[i.(ast.Expr)] || pointers[temp.Interface().(ast.Expr)] {
+		return true
+	}
 
 	for _, a := range assignments {
 		for _, lh := range a.Lhs {
