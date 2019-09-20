@@ -14,8 +14,7 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 )
 
-// Analyzer analyses that all proto message fields are accessed using
-// generated getters and returns any false cases.
+// Analyzer checks that all proto message fields are accessed using generated getters only.
 var Analyzer = &analysis.Analyzer{
 	Name:             "protoget",
 	Doc:              "Checks for any directly accesed fields on proto message",
@@ -28,16 +27,22 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	ins := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 	var assignments []*ast.AssignStmt
 	pointers := map[ast.Expr]bool{}
-	ins.Preorder([]ast.Node{(*ast.AssignStmt)(nil), (*ast.UnaryExpr)(nil)}, func(n ast.Node) {
-		if a, ok := n.(*ast.AssignStmt); ok && a.Tok != token.DEFINE {
-			assignments = append(assignments, a)
-			return
-		}
+	ins.Preorder(
+		[]ast.Node{
+			(*ast.AssignStmt)(nil),
+			(*ast.UnaryExpr)(nil),
+		},
+		func(n ast.Node) {
+			if a, ok := n.(*ast.AssignStmt); ok && a.Tok != token.DEFINE {
+				assignments = append(assignments, a)
+				return
+			}
 
-		if p, ok := n.(*ast.UnaryExpr); ok && p.Op == token.AND {
-			pointers[p.X] = true
-		}
-	})
+			if p, ok := n.(*ast.UnaryExpr); ok && p.Op == token.AND {
+				pointers[p.X] = true
+			}
+		},
+	)
 	ins.Preorder([]ast.Node{(*ast.SelectorExpr)(nil)}, func(n ast.Node) {
 		sel := n.(*ast.SelectorExpr)
 		typ := pass.TypesInfo.Types[sel.X].Type
