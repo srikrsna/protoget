@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"go/types"
 	"reflect"
+	"strings"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
@@ -43,6 +44,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 			}
 		},
 	)
+	var buf strings.Builder
 	ins.Preorder([]ast.Node{(*ast.SelectorExpr)(nil)}, func(n ast.Node) {
 		sel := n.(*ast.SelectorExpr)
 		typ := pass.TypesInfo.Types[sel.X].Type
@@ -72,13 +74,18 @@ func run(pass *analysis.Pass) (interface{}, error) {
 			return
 		}
 
+		buf.Reset()
+		if err := printer.Fprint(&buf, pass.Fset, sel); err != nil {
+			panic(err)
+		}
+
 		pass.Report(analysis.Diagnostic{
 			Pos:     sel.Pos(),
 			End:     sel.End(),
-			Message: fmt.Sprintf("protoget: %q", render(pass.Fset, sel)),
+			Message: fmt.Sprintf("protoget: %q", buf.String()),
 			SuggestedFixes: []analysis.SuggestedFix{
 				{
-					Message: "User the getter instead",
+					Message: "Use the getter instead of field",
 					TextEdits: []analysis.TextEdit{
 						{
 							Pos:     sel.Sel.Pos(),
