@@ -44,7 +44,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		pass.Report(analysis.Diagnostic{
 			Pos:     sel.Pos(),
 			End:     sel.End(),
-			Message: fmt.Sprintf("field of proto type directly accessed %q", render(pass.Fset, sel)),
+			Message: fmt.Sprintf("protoget: %q", render(pass.Fset, sel)),
 			SuggestedFixes: []analysis.SuggestedFix{
 				{
 					Message: "User the getter instead",
@@ -96,9 +96,9 @@ func render(fset *token.FileSet, x interface{}) string {
 var protoType *types.Interface
 
 func init() {
-	nullary := types.NewSignature(nil, nil, nil, false) // func()
+	emptyFunc := types.NewSignature(nil, nil, nil, false)
 	methods := []*types.Func{
-		types.NewFunc(token.NoPos, nil, "ProtoMessage", nullary),
+		types.NewFunc(token.NoPos, nil, "ProtoMessage", emptyFunc),
 	}
 	protoType = types.NewInterface(methods, nil).Complete()
 }

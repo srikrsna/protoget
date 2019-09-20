@@ -1,7 +1,7 @@
 package main
 
 import (
-	"protoget"
+	"github.com/srikrsna/protoget"
 	"golang.org/x/tools/go/analysis/singlechecker"
 )
 
