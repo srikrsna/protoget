@@ -7,6 +7,7 @@ import (
 	"go/printer"
 	"go/token"
 	"go/types"
+	"reflect"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
@@ -27,13 +28,35 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	ins := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 	var assignments []*ast.AssignStmt
 	ins.Preorder([]ast.Node{(*ast.AssignStmt)(nil)}, func(n ast.Node) {
-		assignments = append(assignments, n.(*ast.AssignStmt))
+		a := n.(*ast.AssignStmt)
+		if a.Tok == token.DEFINE {
+			return
+		}
+		assignments = append(assignments, a)
 	})
 	ins.Preorder([]ast.Node{(*ast.SelectorExpr)(nil)}, func(n ast.Node) {
 		sel := n.(*ast.SelectorExpr)
-		typ := pass.TypesInfo.Types[sel].Type
+		typ := pass.TypesInfo.Types[sel.X].Type
+
+		if typ == nil {
+			return
+		}
 
 		if !types.Implements(typ, protoType) {
+			return
+		}
+
+		st := ((typ.(*types.Pointer)).Elem().(*types.Named)).Underlying().(*types.Struct)
+
+		stop := true
+		for i := 0; i < st.NumFields(); i++ {
+			if st.Field(i).Name() == sel.Sel.Name {
+				stop = false
+				break
+			}
+		}
+
+		if stop {
 			return
 		}
 
@@ -62,21 +85,36 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	return nil, nil
 }
 
+var callType = reflect.TypeOf((*ast.CallExpr)(nil))
+
 func isLHS(assignments []*ast.AssignStmt, sel *ast.SelectorExpr) bool {
-	temp := sel
-loop:
+	temp := reflect.ValueOf(sel)
+	old := temp
+
 	for {
-		switch v := temp.X.(type) {
-		case *ast.Ident:
-			break loop
-		case *ast.SelectorExpr:
-			temp = v
+		if temp.Elem().Type().Kind() != reflect.Struct {
+			break
+		}
+
+		if temp.Type() == callType {
+			old = temp
+			temp = temp.Elem().FieldByName("Fun")
+			continue
+		}
+
+		if _, ok := temp.Elem().Type().FieldByName("X"); !ok {
+			break
+		} else {
+			old = temp
+			temp = temp.Elem().FieldByName("X")
 		}
 	}
 
+	i := old.Interface()
+
 	for _, a := range assignments {
 		for _, lh := range a.Lhs {
-			if lh == temp {
+			if lh == i {
 				return true
 			}
 		}
